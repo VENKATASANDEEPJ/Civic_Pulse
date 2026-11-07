@@ -79,7 +79,9 @@ export const ModelIntelligencePage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {Object.entries(metrics.evaluation_metrics).map(([mName, rawEval]) => {
+              {Object.entries(metrics.evaluation_metrics)
+                .filter(([_, val]) => typeof val === 'object' && val !== null && 'precision' in (val as any))
+                .map(([mName, rawEval]) => {
                 const mEval = rawEval as any;
                 const isSelected = mName === metrics.selected_model;
                 return (

@@ -78,8 +78,8 @@ class SyntheticDataGenerator:
             # Monsoon / Storm peak period 1 (days 35 to 65), peak period 2 (days 120 to 145)
             season_factor = 0.2 + 0.8 * np.sin(2 * np.pi * day_idx / 180)
             
-            # Weather events (Storm surges on specific day clusters)
-            is_storm_day = (38 <= day_idx <= 52) or (125 <= day_idx <= 138) or (day_idx in [85, 86, 165])
+            # Weather events (Storm surges on specific day clusters including current operational horizon)
+            is_storm_day = (38 <= day_idx <= 52) or (125 <= day_idx <= 138) or (173 <= day_idx <= 179) or (day_idx in [85, 86, 165])
             
             base_rainfall = 45.0 if is_storm_day else (12.0 * max(0.1, season_factor) + np.random.exponential(4.0))
             if np.random.rand() < 0.15:  # Random isolated rainburst

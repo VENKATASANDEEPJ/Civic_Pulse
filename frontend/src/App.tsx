@@ -1,154 +1,57 @@
-import React, { useEffect, useState } from 'react';
-import { api } from './api';
-import { CityOverview } from './types';
-import { Header } from './components/Header';
-import { OverviewPage } from './pages/OverviewPage';
-import { RiskMapPage } from './pages/RiskMapPage';
-import { RiskAnalysisPage } from './pages/RiskAnalysisPage';
-import { EarlyWarningsPage } from './pages/EarlyWarningsPage';
-import { SimulatorPage } from './pages/SimulatorPage';
-import { ModelIntelligencePage } from './pages/ModelIntelligencePage';
-import { DataExplorerPage } from './pages/DataExplorerPage';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Activity, ArrowDownWideNarrow, ArrowUpRight, BadgeCheck, Bell, Bike, Building2, Check, ChevronDown, ChevronRight, Clock3, Copy, Droplets, Heart, ImagePlus, Lightbulb, MapPin, MessageSquareText, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, ThumbsUp, Trees, Trash2, UploadCloud, X } from 'lucide-react';
+
+const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const categories = ['All issues','Roads & sidewalks','Public transport','Water & drainage','Waste & cleanliness','Parks & public spaces','Street lighting','Public safety','Other'];
+type Report = {id:string; title:string; description:string; category:string; location:string; image_url:string|null; status:string; department:string|null; created_at:string; updated_at:string; support_count:number; supported_by_you:boolean;latest_update:{status:string;note:string;created_at:string;actor:string}|null};
+type FormState = {title:string; description:string; category:string; location:string; image:File|null};
+const blankForm:FormState = {title:'',description:'',category:'Roads & sidewalks',location:'',image:null};
+const uid = () => { let value=localStorage.getItem('civic-resident-id'); if(!value){value=crypto.randomUUID();localStorage.setItem('civic-resident-id',value)} return value; };
+const humanTime = (date:string) => {const d=new Date(date); if(Number.isNaN(d.getTime())) return 'Just now'; const mins=Math.max(0,Math.floor((Date.now()-d.getTime())/60000)); if(mins<1)return 'Just now';if(mins<60)return `${mins}m ago`;if(mins<1440)return `${Math.floor(mins/60)}h ago`;return d.toLocaleDateString(undefined,{month:'short',day:'numeric'});};
+const categoryIcon = (category:string) => category.includes('Water') ? Droplets : category.includes('transport') ? Bike : category.includes('Parks') ? Trees : category.includes('lighting') ? Lightbulb : Building2;
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<string>('overview');
-  const [overview, setOverview] = useState<CityOverview | null>(null);
-  const [selectedZoneId, setSelectedZoneId] = useState<string>('ZONE-01');
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [reports,setReports]=useState<Report[]>([]); const [counts,setCounts]=useState({total:0,open:0,resolved:0}); const [category,setCategory]=useState('All issues');
+  const [sort,setSort]=useState<'popular'|'recent'>('popular'); const [search,setSearch]=useState(''); const [mine,setMine]=useState(false); const [modal,setModal]=useState(false);
+  const [form,setForm]=useState<FormState>(blankForm); const [preview,setPreview]=useState(''); const [busy,setBusy]=useState(false); const [notice,setNotice]=useState(''); const [error,setError]=useState(''); const [online,setOnline]=useState(false);
+  const [headerPanel,setHeaderPanel]=useState<null|'updates'|'profile'>(null);
+  const fileRef=useRef<HTMLInputElement>(null);
+  const load=useCallback(async()=>{try{const r=await fetch(`${API}/community/reports?sort=${sort}`,{headers:{'X-Resident-ID':uid()}});if(!r.ok)throw new Error('Could not load the community feed.');const data=await r.json();setReports(data.reports);setCounts(data.counts);setOnline(true)}catch{setOnline(false)}},[sort]);
+  useEffect(()=>{load()},[load]);
+  useEffect(()=>{if(!notice)return;const t=window.setTimeout(()=>setNotice(''),3600);return()=>window.clearTimeout(t)},[notice]);
+  useEffect(()=>{if(!form.image){setPreview('');return}const u=URL.createObjectURL(form.image);setPreview(u);return()=>URL.revokeObjectURL(u)},[form.image]);
+  const visible=useMemo(()=>reports.filter(r=>(category==='All issues'||r.category===category)&&(!mine||r.supported_by_you)&&(!search||`${r.title} ${r.description} ${r.location} ${r.category}`.toLowerCase().includes(search.toLowerCase()))),[reports,category,mine,search]);
+  const submit=async(e:React.FormEvent)=>{e.preventDefault();setBusy(true);setError('');const body=new FormData();body.append('title',form.title);body.append('description',form.description);body.append('category',form.category);body.append('location',form.location);if(form.image)body.append('image',form.image);try{const r=await fetch(`${API}/community/reports`,{method:'POST',body});const data=await r.json();if(!r.ok)throw new Error(data.detail||'Your report could not be submitted.');setForm(blankForm);setModal(false);setNotice('Your report is live. Thanks for speaking up.');await load()}catch(err){setError(err instanceof Error?err.message:'Unable to submit report. Check that the API is running.')}finally{setBusy(false)}};
+  const support=async(id:string)=>{try{const r=await fetch(`${API}/community/reports/${id}/support`,{method:'POST',headers:{'X-Resident-ID':uid()}});const data=await r.json();if(!r.ok)throw new Error(data.detail||'Could not update support.');setReports(old=>old.map(i=>i.id===id?data:i));}catch(err){setNotice(err instanceof Error?err.message:'Could not update support.')}};
 
-  const loadData = () => {
-    setLoading(true);
-    setError(null);
-    api.getOverview()
-      .then((data) => {
-        setOverview(data);
-        if (data.zones_summary && data.zones_summary.length > 0) {
-          // Default select highest risk zone
-          setSelectedZoneId(data.zones_summary[0].zone_id);
-        }
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error("API connection error:", err);
-        setError("Unable to connect to CIVIC-PULSE backend API on http://localhost:8000. Ensure the FastAPI server is running.");
-        setLoading(false);
-      });
-  };
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const handleSelectZone = (zoneId: string) => {
-    setSelectedZoneId(zoneId);
-  };
-
-  if (loading && !overview) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="text-center space-y-3 font-mono">
-          <div className="h-10 w-10 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <div className="text-cyan-400 font-bold text-sm">Initializing CIVIC-PULSE Operational Intelligence...</div>
-          <div className="text-xs text-slate-500">Connecting to FastAPI service on http://localhost:8000</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error && !overview) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <div className="bg-slate-900 border border-rose-500/40 rounded-xl p-6 max-w-md text-center space-y-4">
-          <AlertTriangle className="h-10 w-10 text-rose-400 mx-auto" />
-          <h2 className="text-lg font-bold text-white">Backend Connection Error</h2>
-          <p className="text-xs text-slate-400">{error}</p>
-          <button
-            onClick={loadData}
-            className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg text-xs flex items-center justify-center space-x-2 mx-auto"
-          >
-            <RefreshCw className="h-4 w-4" />
-            <span>Retry Connection</span>
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const criticalCount = overview ? (overview.critical_zones_count + overview.high_risk_zones_count) : 0;
-  const zones = overview ? overview.zones_summary : [];
-
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      <Header
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        criticalCount={criticalCount}
-      />
-
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {overview && (
-          <>
-            {activeTab === 'overview' && (
-              <OverviewPage
-                overview={overview}
-                onSelectZone={(zid) => {
-                  handleSelectZone(zid);
-                  setActiveTab('analysis');
-                }}
-                onNavigateTab={setActiveTab}
-              />
-            )}
-
-            {activeTab === 'map' && (
-              <RiskMapPage
-                zones={zones}
-                selectedZoneId={selectedZoneId}
-                onSelectZone={(zid) => {
-                  handleSelectZone(zid);
-                }}
-              />
-            )}
-
-            {activeTab === 'analysis' && (
-              <RiskAnalysisPage
-                zones={zones}
-                selectedZoneId={selectedZoneId}
-                onSelectZone={handleSelectZone}
-              />
-            )}
-
-            {activeTab === 'warnings' && (
-              <EarlyWarningsPage
-                onSelectZone={(zid) => {
-                  handleSelectZone(zid);
-                }}
-                onNavigateTab={setActiveTab}
-              />
-            )}
-
-            {activeTab === 'simulator' && (
-              <SimulatorPage
-                zones={zones}
-                selectedZoneId={selectedZoneId}
-              />
-            )}
-
-            {activeTab === 'intelligence' && (
-              <ModelIntelligencePage />
-            )}
-
-            {activeTab === 'explorer' && (
-              <DataExplorerPage zones={zones} />
-            )}
-          </>
-        )}
-      </main>
-
-      <footer className="bg-slate-900/50 border-t border-slate-800/80 py-4 text-center text-xs text-slate-500 font-mono">
-        <div>CIVIC-PULSE Urban Infrastructure Risk Intelligence System • Production Science Portfolio</div>
-      </footer>
+  const cityUpdates=reports.filter(r=>r.status!=='Reported').sort((a,b)=>new Date(b.updated_at||b.created_at).getTime()-new Date(a.updated_at||a.created_at).getTime()).slice(0,5);
+  const jumpToFeed=()=>document.getElementById('community-feed')?.scrollIntoView({behavior:'smooth',block:'start'});
+  const viewSupport=()=>{setMine(true);setCategory('All issues');setSearch('');setHeaderPanel(null);jumpToFeed()};
+  const copyMemberId=async()=>{try{await navigator.clipboard.writeText(uid());setNotice('Your member ID was copied.')}catch{setNotice('Clipboard access is unavailable in this browser.')}setHeaderPanel(null)};
+  return <div className="app-shell" id="home">
+    <aside className="sidebar">
+      <a className="brand" href="#home" aria-label="Civic Pulse home"><span className="brand-mark"><Activity size={21}/></span><span>Civic<span className="brand-light">Pulse</span><small>YOUR CITY, IN THE LOOP</small></span></a>
+      <div className="side-section-label">COMMUNITY</div>
+      <button className={`side-link ${!mine?'active':''}`} onClick={()=>{setMine(false);setCategory('All issues');setSearch('');jumpToFeed()}}><span className="nav-icon"><Building2 size={17}/></span>City feed<span className="side-count">{counts.open}</span></button>
+      <button className={`side-link ${mine?'active':''}`} onClick={viewSupport}><span className="nav-icon"><Heart size={17}/></span>My support</button>
+      <div className="side-section-label side-gap">EXPLORE BY TOPIC</div>
+      {categories.slice(1,7).map((c,i)=>{const Icon=[Building2,Bike,Droplets,Trash2,Trees,Lightbulb][i];return <button key={c} onClick={()=>{setCategory(c);setMine(false);setSearch('');jumpToFeed()}} className={`side-link ${category===c?'selected':''}`}><span className="nav-icon"><Icon size={16}/></span>{c}</button>})}
+      <div className="sidebar-bottom"><div className="trust-card"><span className="trust-icon"><ShieldCheck size={17}/></span><div><b>People-powered progress</b><p>Support helps officials see what matters to your neighbourhood.</p></div></div><a className="staff-link" href="/officials"><Building2 size={14}/>Staff workspace<ArrowUpRight size={13}/></a><span className="side-version">CIVICPULSE · COMMUNITY EDITION</span></div>
+    </aside>
+    <div className="main-column">
+      <header className="topbar"><div className="mobile-brand"><span className="brand-mark"><Activity size={19}/></span><b>Civic<span className="brand-light">Pulse</span></b></div><div className="location-pill"><MapPin size={15}/><span>San Francisco</span></div><div className="topbar-right"><span className={`connection ${online?'is-online':''}`}><i/>{online?'Live community':'Connecting'}</span><div className="header-pop-wrap"><button className={`icon-button ${headerPanel==='updates'?'is-open':''}`} aria-label="City updates" aria-expanded={headerPanel==='updates'} onClick={()=>setHeaderPanel(headerPanel==='updates'?null:'updates')}><Bell size={17}/>{cityUpdates.length>0&&<i className="notification-dot"/>}</button>{headerPanel==='updates'&&<div className="header-popover updates-popover"><div className="popover-head"><div><b>City updates</b><span>Recent staff activity</span></div><button onClick={()=>setHeaderPanel(null)} aria-label="Close updates"><X size={15}/></button></div>{cityUpdates.length===0?<div className="popover-empty"><span><Bell size={17}/></span><b>No updates yet</b><p>When the city reviews a report, its progress will appear here.</p></div>:cityUpdates.map(r=><button className="update-item" key={r.id} onClick={()=>{setCategory(r.category);setMine(false);setSearch('');setHeaderPanel(null);jumpToFeed()}}><span className="update-dot"/><span><b>{r.title}</b><small>{r.status}{r.department?` · ${r.department}`:''}</small></span><ChevronRight size={14}/></button>)}</div>}</div><div className="header-pop-wrap"><button className="avatar" aria-label="Resident profile" aria-expanded={headerPanel==='profile'} onClick={()=>setHeaderPanel(headerPanel==='profile'?null:'profile')}>R</button>{headerPanel==='profile'&&<div className="header-popover profile-popover"><div className="profile-intro"><span className="profile-avatar">R</span><div><b>Community member</b><small>Anonymous resident account</small></div></div><div className="member-id">MEMBER ID <b>{uid().slice(0,8).toUpperCase()}</b></div><button className="profile-action" onClick={viewSupport}><Heart size={15}/>View issues I support<ChevronRight size={14}/></button><button className="profile-action" onClick={copyMemberId}><Copy size={15}/>Copy member ID<ChevronRight size={14}/></button></div>}</div></div></header>
+      <main className="content-area">
+        <div className="page-heading"><div><div className="eyebrow"><span className="eyebrow-dot"/>A BETTER CITY STARTS HERE</div><h1>Small actions.<br/><span>Real change.</span></h1><p className="heading-copy">Spot something that needs fixing? Share it with your neighbours and the people who can help.</p></div><div className="heading-art" aria-hidden="true"><div className="sun-glow"/><div className="cityline"><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/></div><div className="art-pin"><MapPin size={19}/></div><div className="art-spark s1">✳</div><div className="art-spark s2">✳</div></div></div>
+        <div className="stat-row"><div className="stat-card"><span className="stat-icon orange"><MessageSquareText size={17}/></span><div><b>{counts.total.toLocaleString()}</b><span>Community reports</span></div></div><div className="stat-card"><span className="stat-icon blue"><Clock3 size={17}/></span><div><b>{counts.open.toLocaleString()}</b><span>Being worked on</span></div></div><div className="stat-card"><span className="stat-icon green"><BadgeCheck size={17}/></span><div><b>{counts.resolved.toLocaleString()}</b><span>Issues resolved</span></div></div><button className="report-cta" onClick={()=>{setError('');setModal(true)}}><Plus size={18}/>Report an issue<ArrowUpRight size={16}/></button></div>
+        <section className="feed-section" id="community-feed"><div className="feed-title-row"><div><div className="section-kicker">NEIGHBOURHOOD VOICES</div><h2>{mine?'Issues you support':'Community feed'} <span className="live-count">{visible.length}</span></h2></div><div className="feed-tools"><label className="search-box"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search issues" aria-label="Search issues"/>{search&&<button onClick={()=>setSearch('')} aria-label="Clear search"><X size={14}/></button>}</label><button className="sort-button" onClick={()=>setSort(sort==='popular'?'recent':'popular')}><ArrowDownWideNarrow size={16}/>{sort==='popular'?'Most supported':'Most recent'}<ChevronDown size={14}/></button></div></div>
+        <div className="filter-chips">{categories.map(c=><button key={c} onClick={()=>setCategory(c)} className={`filter-chip ${category===c?'chosen':''}`}>{c==='All issues'&&<SlidersHorizontal size={14}/ >}{c}</button>)}</div>
+        {!online?<div className="empty-state connection-state"><span className="empty-icon"><Activity size={22}/></span><h3>Connecting to your city</h3><p>Start the API server to load community reports and submit new issues.</p><code>uvicorn src.api.main:app --reload</code></div>:visible.length===0?<><div className="empty-state"><span className="empty-icon"><Sparkles size={22}/></span><h3>{mine?'Your support makes a difference':'Be the first to speak up'}</h3><p>{mine?'Support a community report and it will show up here.':'No reports in this view yet. See something that needs attention? Let the city know.'}</p>{!mine&&<button className="text-cta" onClick={()=>{setError('');setModal(true)}}>Share the first report <ChevronRight size={16}/></button>}</div>{!mine&&<div className="how-it-works"><div><span>01</span><b>Spot an issue</b><p>Share what you noticed and where it is.</p></div><div><span>02</span><b>Build community support</b><p>Neighbours can support reports that matter.</p></div><div><span>03</span><b>Follow the response</b><p>See when city teams review and resolve it.</p></div></div>}</>:<div className="report-grid">{visible.map(r=><ReportCard key={r.id} report={r} onSupport={()=>support(r.id)}/>)}</div>}
+        <div className="feed-footnote"><ShieldCheck size={15}/>Community support helps prioritize reports. Every report is subject to review before official action.</div></section>
+      </main><footer className="page-footer"><span>Made for the people who make a city. <a href="/officials">Staff workspace</a></span><span>Community reports are public. Please don’t share private or identifying information.</span></footer>
     </div>
-  );
+    {modal&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setModal(false)}}><section className="report-modal" role="dialog" aria-modal="true" aria-labelledby="report-title"><div className="modal-heading"><div><div className="section-kicker">MAKE IT VISIBLE</div><h2 id="report-title">Report an issue</h2><p>Give your neighbours and city team the details they need.</p></div><button className="icon-button close-modal" onClick={()=>setModal(false)} aria-label="Close"><X size={19}/></button></div><form onSubmit={submit} className="report-form"><label>What needs attention?<input required maxLength={120} value={form.title} onChange={e=>setForm({...form,title:e.target.value})} placeholder="e.g. Large pothole on Pine Street"/></label><label>Tell us a little more<textarea required maxLength={2000} rows={4} value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="Describe what you noticed and how it affects the area…"/><small>{form.description.length}/2,000</small></label><div className="form-split"><label>Issue type<select value={form.category} onChange={e=>setForm({...form,category:e.target.value})}>{categories.slice(1).map(c=><option key={c}>{c}</option>)}</select></label><label>Where is it?<input required maxLength={180} value={form.location} onChange={e=>setForm({...form,location:e.target.value})} placeholder="Street, landmark or neighbourhood"/></label></div><div><span className="upload-label">Add a photo <span>OPTIONAL · UP TO 5 MB</span></span><input ref={fileRef} className="hidden-file" type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>setForm({...form,image:e.target.files?.[0]||null})}/>{preview?<div className="image-preview"><img src={preview} alt="Selected report"/><button type="button" onClick={()=>{setForm({...form,image:null});if(fileRef.current)fileRef.current.value=''}} aria-label="Remove photo"><X size={15}/></button></div>:<button type="button" className="upload-drop" onClick={()=>fileRef.current?.click()}><span><ImagePlus size={19}/></span><b>Add a photo</b><small>JPEG, PNG or WebP</small></button>}</div><div className="privacy-note"><ShieldCheck size={16}/><span>Your report is public. Avoid including faces, licence plates, or personal details.</span></div>{error&&<div className="form-error" role="alert">{error}</div>}<div className="modal-actions"><button type="button" className="cancel-button" onClick={()=>setModal(false)}>Cancel</button><button className="submit-button" disabled={busy}>{busy?<><span className="spinner"/>Submitting…</>:<><UploadCloud size={16}/>Publish report</>}</button></div></form></section></div>}
+    {notice&&<div className="toast" role="status"><Check size={17}/>{notice}<button onClick={()=>setNotice('')} aria-label="Dismiss"><X size={15}/></button></div>}
+  </div>
 };
+
+function ReportCard({report,onSupport}:{report:Report;onSupport:()=>void}){const Icon=categoryIcon(report.category);return <article className="report-card"><div className="report-card-top"><span className="category-tag"><Icon size={13}/>{report.category}</span><span className={`status-tag ${report.status.toLowerCase().replace(/ /g,'-')}`}><i/>{report.status}</span></div>{report.image_url&&<img className="report-image" src={`${API}${report.image_url}`} alt="Photo attached to this community report" loading="lazy"/>}<h3>{report.title}</h3><p className="report-description">{report.description}</p><div className="report-location"><MapPin size={14}/>{report.location}<span>·</span><time>{humanTime(report.created_at)}</time></div>{report.department&&<div className="assigned-team"><Building2 size={13}/>Routed to {report.department}</div>}{report.latest_update?.note&&<div className="public-update"><span>City team update</span><p>{report.latest_update.note}</p></div>}<div className="card-bottom"><span className="report-id">{report.id}</span><button className={`support-button ${report.supported_by_you?'supported':''}`} onClick={onSupport} aria-pressed={report.supported_by_you}><ThumbsUp size={15}/><b>{report.support_count}</b><span>{report.supported_by_you?'Supported':'Support'}</span></button></div></article>}

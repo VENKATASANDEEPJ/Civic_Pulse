@@ -10,6 +10,10 @@ class SimulationRequest(BaseModel):
     drainage_inspection_active: bool = Field(False)
 
 
+class AlertActionRequest(BaseModel):
+    notes: Optional[str] = Field(None, description="Optional operational notes or dispatcher remarks")
+
+
 class ZoneRiskSummary(BaseModel):
     zone_id: str
     name: str
@@ -28,11 +32,26 @@ class ZoneRiskSummary(BaseModel):
 class OverviewResponse(BaseModel):
     city_name: str
     total_zones: int
+    monitored_zones_count: int
     average_risk_score: float
     critical_zones_count: int
     high_risk_zones_count: int
+    watch_zones_count: int
+    low_risk_zones_count: int
     active_anomalies_count: int
     early_warning_lead_time_hours: float
     detection_rate_percent: str
     dataset_date_range: str
+    data_mode: str
+    data_source_description: str
+    is_synthetic: bool
+    last_processed_at: str
     zones_summary: List[ZoneRiskSummary]
+
+
+class CsvValidationResponse(BaseModel):
+    is_valid: bool
+    issues: List[str]
+    total_rows: int
+    columns_found: List[str]
+    sample_preview: List[Dict[str, Any]]

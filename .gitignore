@@ -48,3 +48,10 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.bak
+
+# User submitted community report media and database
+data/community_uploads/
+data/community_reports.sqlite3*
+
+# Include CivicPulse trained model
+!data/models/best_model.joblib
